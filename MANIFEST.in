@@ -1,0 +1,3 @@
+include LICENSE
+include README.md
+recursive-include cbpi4-WhirlpoolStep *.yaml
