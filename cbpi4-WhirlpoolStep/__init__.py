@@ -36,6 +36,9 @@ class WhirlpoolStep(CBPiStep):
     async def on_timer_done(self, timer):
         """Действие при завершении таймера выдержки"""
         self.summary = ""
+        # Сбрасываем целевую температуру котла в 0 (дальше ориентир — датчик чиллера)
+        if self.kettle is not None:
+            self.kettle.target_temp = 0
         # Гарантированно выключаем охлаждение при завершении шага
         if self.cooling_actor is not None:
             await self.actor_off(self.cooling_actor)
