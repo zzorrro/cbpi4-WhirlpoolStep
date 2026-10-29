@@ -135,6 +135,3 @@ def setup(cbpi):
     Здесь мы регистрируем наш новый плагин в системе.
     '''
     cbpi.plugin.register("WhirlpoolStep", WhirlpoolStep)
-    Здесь мы регистрируем наш новый плагин.
-    '''
-    cbpi.plugin.register("WhirlpoolStep", WhirlpoolStep)
