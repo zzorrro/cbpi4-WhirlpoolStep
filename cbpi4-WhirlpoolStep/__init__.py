@@ -62,10 +62,12 @@ class WhirlpoolStep(CBPiStep):
         
         self.cooling_active = True
         
-        # 2. Безопасность: сбрасываем целевую температуру котла в 0, 
-        # чтобы встроенная логика нагрева (PID) не мешала процессу охлаждения
+        # 2. Устанавливаем целевую температуру котла для отображения (например, 85°C)
+        # ВАЖНО: Мы НЕ вызываем setAutoMode(True), поэтому PID не активируется
+        # Охлаждение управляется только через cooling_actor
         if self.kettle is not None:
-            self.kettle.target_temp = 0 
+            self.kettle.target_temp = int(self.target_temp)
+            logging.info(f"Kettle target temp set to {self.target_temp}°C (PID not activated)")
 
         # 3. Инициализация таймера (пока не запускаем его)
         if self.timer is None:
@@ -83,6 +85,9 @@ class WhirlpoolStep(CBPiStep):
         """Действие при ручной остановке шага (безопасность)"""
         await self.timer.stop()
         self.summary = ""
+        # Сбрасываем целевую температуру котла в 0 при остановке
+        if self.kettle is not None:
+            self.kettle.target_temp = 0
         # Гарантированно выключаем охлаждение при принудительной остановке
         if self.cooling_actor is not None:
             await self.actor_off(self.cooling_actor)
