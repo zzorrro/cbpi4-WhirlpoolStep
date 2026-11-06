@@ -13,7 +13,7 @@ from cbpi.api.dataclasses import NotificationType
     Property.Sensor(label="Sensor", description="Temperature sensor in the kettle"),
     Property.Kettle(label="Kettle", description="Boiling kettle"),
     Property.Actor(label="Cooling Actor", description="Actor/Valve that triggers cooling"),
-    Property.Actor(label="Pump", description="Pump for whirlpool and transfer (optional)") # <-- ДОБАВЛЕНО
+    Property.Actor(label="Pump", description="Pump for whirlpool (optional)")
 ])
 class WhirlpoolStep(CBPiStep):
 
@@ -44,12 +44,8 @@ class WhirlpoolStep(CBPiStep):
         if self.cooling_actor is not None:
             await self.actor_off(self.cooling_actor)
             
-        # <-- ДОБАВЛЕНО: Включаем насос для перекачки после Hop Stand
-        if self.pump_actor is not None:
-            await self.actor_on(self.pump_actor)
-            self.cbpi.notify(self.name, 'Hop Stand completed. Pump turned ON for transfer.', NotificationType.SUCCESS)
-        else:
-            self.cbpi.notify(self.name, 'Whirlpool completed', NotificationType.SUCCESS)
+        # ИЗМЕНЕНО: Насос больше не включается здесь — это сделает шаг охлаждения
+        self.cbpi.notify(self.name, 'Whirlpool completed', NotificationType.SUCCESS)
             
         await self.next()
 
@@ -66,7 +62,7 @@ class WhirlpoolStep(CBPiStep):
         self.kettle = self.get_kettle(self.props.Kettle)
         self.sensor = self.props.Sensor
         self.cooling_actor = self.props.get("Cooling Actor", None)
-        self.pump_actor = self.props.get("Pump", None) # <-- ДОБАВЛЕНО
+        self.pump_actor = self.props.get("Pump", None)
         
         self.target_temp = float(self.props.get("Target Temp", 85))
         self.hold_time = int(self.props.get("Hold Time", 15))
@@ -99,7 +95,7 @@ class WhirlpoolStep(CBPiStep):
             self.kettle.target_temp = 0
         if self.cooling_actor is not None:
             await self.actor_off(self.cooling_actor)
-        # <-- ДОБАВЛЕНО: Для безопасности выключаем насос и при ручной остановке
+        # Для безопасности выключаем насос и при ручной остановке
         if self.pump_actor is not None:
             await self.actor_off(self.pump_actor)
         await self.push_update()
@@ -127,7 +123,7 @@ class WhirlpoolStep(CBPiStep):
                     if self.cooling_actor is not None:
                         await self.actor_off(self.cooling_actor)
                     
-                    # <-- ДОБАВЛЕНО: Выключаем насос для спокойного Hop Stand
+                    # Выключаем насос для спокойного Hop Stand
                     if self.pump_actor is not None:
                         await self.actor_off(self.pump_actor)
                     
