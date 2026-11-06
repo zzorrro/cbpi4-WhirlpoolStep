@@ -12,7 +12,8 @@ from cbpi.api.dataclasses import NotificationType
     Property.Number(label="Hold Time", description="Hold time in minutes after reaching target temperature (e.g., 15)", configurable=True),
     Property.Sensor(label="Sensor", description="Temperature sensor in the kettle"),
     Property.Kettle(label="Kettle", description="Boiling kettle"),
-    Property.Actor(label="Cooling Actor", description="Actor/Valve that triggers cooling")
+    Property.Actor(label="Cooling Actor", description="Actor/Valve that triggers cooling"),
+    Property.Actor(label="Pump", description="Pump for whirlpool and transfer (optional)") # <-- ДОБАВЛЕНО
 ])
 class WhirlpoolStep(CBPiStep):
 
@@ -36,13 +37,20 @@ class WhirlpoolStep(CBPiStep):
     async def on_timer_done(self, timer):
         """Действие при завершении таймера выдержки"""
         self.summary = ""
-        # Сбрасываем целевую температуру котла в 0 (дальше ориентир — датчик чиллера)
+        # Сбрасываем целевую температуру котла в 0
         if self.kettle is not None:
             self.kettle.target_temp = 0
         # Гарантированно выключаем охлаждение при завершении шага
         if self.cooling_actor is not None:
             await self.actor_off(self.cooling_actor)
-        self.cbpi.notify(self.name, 'Whirlpool completed', NotificationType.SUCCESS)
+            
+        # <-- ДОБАВЛЕНО: Включаем насос для перекачки после Hop Stand
+        if self.pump_actor is not None:
+            await self.actor_on(self.pump_actor)
+            self.cbpi.notify(self.name, 'Hop Stand completed. Pump turned ON for transfer.', NotificationType.SUCCESS)
+        else:
+            self.cbpi.notify(self.name, 'Whirlpool completed', NotificationType.SUCCESS)
+            
         await self.next()
 
     async def on_timer_update(self, timer, seconds):
@@ -51,13 +59,14 @@ class WhirlpoolStep(CBPiStep):
         await self.push_update()
 
     async def on_start(self):
-        """Инициализация при запуске шага (в стиле BM_Steps)"""
+        """Инициализация при запуске шага"""
         self.port = str(self.cbpi.static_config.get('port', 8000))
         
-        # 1. Явное получение параметров (обязательные через атрибут, опциональные через get)
+        # 1. Явное получение параметров
         self.kettle = self.get_kettle(self.props.Kettle)
         self.sensor = self.props.Sensor
         self.cooling_actor = self.props.get("Cooling Actor", None)
+        self.pump_actor = self.props.get("Pump", None) # <-- ДОБАВЛЕНО
         
         self.target_temp = float(self.props.get("Target Temp", 85))
         self.hold_time = int(self.props.get("Hold Time", 15))
@@ -65,14 +74,12 @@ class WhirlpoolStep(CBPiStep):
         
         self.cooling_active = True
         
-        # 2. Устанавливаем целевую температуру котла для отображения (например, 85°C)
-        # ВАЖНО: Мы НЕ вызываем setAutoMode(True), поэтому PID не активируется
-        # Охлаждение управляется только через cooling_actor
+        # 2. Устанавливаем целевую температуру котла для отображения
         if self.kettle is not None:
             self.kettle.target_temp = int(self.target_temp)
             logging.info(f"Kettle target temp set to {self.target_temp}°C (PID not activated)")
 
-        # 3. Инициализация таймера (пока не запускаем его)
+        # 3. Инициализация таймера
         if self.timer is None:
             self.timer = Timer(self.hold_time_seconds, on_update=self.on_timer_update, on_done=self.on_timer_done)
 
@@ -88,12 +95,13 @@ class WhirlpoolStep(CBPiStep):
         """Действие при ручной остановке шага (безопасность)"""
         await self.timer.stop()
         self.summary = ""
-        # Сбрасываем целевую температуру котла в 0 при остановке
         if self.kettle is not None:
             self.kettle.target_temp = 0
-        # Гарантированно выключаем охлаждение при принудительной остановке
         if self.cooling_actor is not None:
             await self.actor_off(self.cooling_actor)
+        # <-- ДОБАВЛЕНО: Для безопасности выключаем насос и при ручной остановке
+        if self.pump_actor is not None:
+            await self.actor_off(self.pump_actor)
         await self.push_update()
 
     async def reset(self):
@@ -103,16 +111,15 @@ class WhirlpoolStep(CBPiStep):
         self.cooling_active = True
 
     async def run(self):
-        """Основной цикл выполнения шага (в стиле BM_Cooldown)"""
+        """Основной цикл выполнения шага"""
         while self.running == True:
             await asyncio.sleep(1)
             
-            # Получаем текущее значение температуры с датчика
             sensor_data = self.get_sensor_value(self.sensor)
             if sensor_data and "value" in sensor_data:
                 current_temp = float(sensor_data.get("value"))
                 
-                # Если охлаждение активно и мы достигли (или прошли) целевую температуру
+                # Если охлаждение активно и мы достигли целевую температуру
                 if self.cooling_active and current_temp <= self.target_temp:
                     self.cooling_active = False
                     
@@ -120,10 +127,13 @@ class WhirlpoolStep(CBPiStep):
                     if self.cooling_actor is not None:
                         await self.actor_off(self.cooling_actor)
                     
-                    # Простое уведомление о достижении температуры (без расчетного времени)
+                    # <-- ДОБАВЛЕНО: Выключаем насос для спокойного Hop Stand
+                    if self.pump_actor is not None:
+                        await self.actor_off(self.pump_actor)
+                    
                     self.cbpi.notify(
                         self.name, 
-                        f'Target temp {self.target_temp}°C reached. Cooling off. Hold time started.', 
+                        f'Target temp {self.target_temp}°C reached. Cooling & Pump OFF. Hop Stand started.', 
                         NotificationType.INFO
                     )
                     
@@ -138,8 +148,4 @@ class WhirlpoolStep(CBPiStep):
 
 
 def setup(cbpi):
-    '''
-    Этот метод вызывается сервером CBPI4 при запуске.
-    Здесь мы регистрируем наш новый плагин в системе.
-    '''
     cbpi.plugin.register("WhirlpoolStep", WhirlpoolStep)
